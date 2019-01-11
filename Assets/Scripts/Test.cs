@@ -117,6 +117,7 @@ public class Test : MonoBehaviour
         }
         CvInvoke.DrawContours(image, contours, biggestContourIndex, new MCvScalar(200, 100, 200), 3);
 
+        Debug.Log(biggestContourArea.ToString());
         //Centroid
         var moments = CvInvoke.Moments(biggestContour);
         int cx = (int)(moments.M10 / moments.M00);
