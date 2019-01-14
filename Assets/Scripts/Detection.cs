@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 using Emgu.CV;
 using Emgu.CV.Util;
 using Emgu.CV.CvEnum;
@@ -11,15 +12,24 @@ using System.IO;
 using Emgu.CV.Cuda;
 using System.Drawing;
 
+/// <summary>
+/// Note :
+/// Pour la détection d'un sourire 
+/// Detecter le visage, garder la zone en question dans un rectangle
+/// chercher dans le bas du rectangle/visage, soit directement le sourire / soit des variations de zones
+/// </summary>
+/// 
 public class Detection : MonoBehaviour
 {
 
     public VideoCapture webcam;
     public EventHandler eventHandler;
-    private Mat image;
+    public Mat image;
     private Mat imageGray;
     public CascadeClassifier frontFaceCascadeClassifier;
     public string pathFaceCascadeClassifier;
+    public Texture2D tex;
+    public UnityEngine.UI.Image myImage;
 
     /// <summary>
     /// A table of Rectangle that is gonna contain the region of interest of the detected faces
@@ -29,29 +39,37 @@ public class Detection : MonoBehaviour
     private int MIN_FACE_SIZE = 50;
     private int MAX_FACE_SIZE = 200;
 
+    //Threshold values
+    [Header("Threshold values")]
+    public int maxValue;
+    public int blockSize;
+    public int diviser;
+
+    public VectorOfVectorOfPoint contours;
+
+
     // Use this for initialization
-    void Start()
-    {
+    void Start() {
         webcam = new VideoCapture(0);
         image = new Mat();
 
-        pathFaceCascadeClassifier = "C:/Users/atetart/Documents/opencv-master/opencv-master/data/haarcascades/haarcascade_frontalface_default.xml";
+        contours = new VectorOfVectorOfPoint();
+        pathFaceCascadeClassifier = "C:/Users/atetart/Documents/opencv-master/opencv-master/data/lbpcascades/lbpcascade_frontalface_improved.xml";
         frontFaceCascadeClassifier = new CascadeClassifier(pathFaceCascadeClassifier);
-       // webcam.Start();
+        // webcam.Start();
         webcam.ImageGrabbed += new EventHandler(HandleWebcamQueryFrame);
 
     }
 
     // Update is called once per frame
-    void Update()
-    {
+    void Update() {
         webcam.Grab();
+
         //Debug.Log(frontFaces.Length.ToString());
 
     }
 
-    public void HandleWebcamQueryFrame(object sender, EventArgs e)
-    {
+    public void HandleWebcamQueryFrame(object sender, EventArgs e) {
         if (webcam.IsOpened) webcam.Retrieve(image);
         if (image.IsEmpty) return;
 
@@ -65,15 +83,54 @@ public class Detection : MonoBehaviour
         for (int i = 0; i < frontFaces.Length; i++) {
 
             CvInvoke.Rectangle(image, frontFaces[i], new MCvScalar(0, 180, 0), 5);
-            Debug.Log("i: "+ i.ToString());
+            Debug.Log("i: " + i.ToString());
 
         }
-        CvInvoke.Imshow("Webcam view Gray", image);
+
+        //Nouvelle matrice qui focus sur le premier visage
+        if (frontFaces.Length > 0) image = new Mat(image, frontFaces[0]);
+        DisplayFrame(image);
+
+        //Seuillage adaptatif
+        Mat hierarchy = new Mat();
+        CvInvoke.AdaptiveThreshold(imageGray, imageGray, maxValue, AdaptiveThresholdType.MeanC, ThresholdType.Binary, blockSize, diviser);
+        CvInvoke.FindContours(imageGray, contours, hierarchy, RetrType.List, ChainApproxMethod.ChainApproxNone);
+        
+        CvInvoke.DrawContours(image, contours, -1, new MCvScalar(200, 100, 200), 2);
+
+        CvInvoke.Imshow("Webcam view Normal", image);
+        CvInvoke.Imshow("Webcam view Gray", imageGray);
 
     }
 
-    private void OnDestroy()
-    {
+    public void DisplayFrame(Mat image) {
+        if (!image.IsEmpty) {
+            Destroy(tex);
+            tex = ConvertMatToTexture2D(image.Clone(), (int)myImage.rectTransform.rect.width, (int)myImage.rectTransform.rect.height);
+
+            myImage.sprite = Sprite.Create(tex, new Rect(0.0f, 0.0f, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100.0f);
+        }
+    }
+
+    Texture2D ConvertMatToTexture2D(Mat matImage, int width, int height) {
+        //Resize the mat
+        if (matImage.IsEmpty) return new Texture2D(width, height);
+        CvInvoke.Resize(matImage, matImage, new Size(width, height));
+
+        //The LoadRawTextureData below flip the image vertically, we handle it beforehand
+        if (matImage.IsEmpty) return new Texture2D(width, height);
+        CvInvoke.Flip(matImage, matImage, FlipType.Vertical);
+
+        //Load the Mat in a Texture2D
+        if (matImage.IsEmpty) return new Texture2D(width, height);
+        Texture2D texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+        texture.LoadRawTextureData(matImage.ToImage<Rgba, Byte>().Bytes);
+
+        texture.Apply();
+        return texture;
+
+    }
+    private void OnDestroy() {
         webcam.Dispose();
         webcam.Stop();
         CvInvoke.DestroyAllWindows();
